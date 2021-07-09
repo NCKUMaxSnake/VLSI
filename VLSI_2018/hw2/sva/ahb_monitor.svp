@@ -1,0 +1,821 @@
+//================================================
+// Auther:      Hsieh Hsien-Hua (Henry)
+// Filename:    ahb_monitor.sva
+//              ahb_monitor.svp (After protect)
+// Description: AHB monitor
+// Version:     1.0
+//================================================
+
+`include "AHB_def.svh"
+
+module ahb_master_monitor #(
+  parameter MASTER_NUMBER = 4'd1
+)(
+  input HCLK,
+  input HRESETn,
+  // Master -> AHB
+  input [`AHB_ADDR_BITS-1:0] HADDR_M,
+  input [`AHB_TRANS_BITS-1:0] HTRANS_M,
+  input HWRITE_M,
+  input [`AHB_SIZE_BITS-1:0] HSIZE_M,
+  input [`AHB_BURST_BITS-1:0] HBURST_M,
+  input [`AHB_PROT_BITS-1:0] HPROT_M,
+  input [`AHB_DATA_BITS-1:0] HWDATA_M,
+  input HBUSREQ_M,
+  input HLOCK_M,
+  // AHB -> Master
+  input [`AHB_DATA_BITS-1:0] HRDATA,
+  input HREADY,
+  input [`AHB_RESP_BITS-1:0] HRESP,
+  input HGRANT_M,
+  // AHB -> Slave
+  input [`AHB_TRANS_BITS-1:0] HTRANS,
+  input [`AHB_ADDR_BITS-1:0] HADDR,
+  input HWRITE,
+  input [`AHB_SIZE_BITS-1:0] HSIZE,
+  input [`AHB_BURST_BITS-1:0] HBURST,
+  input [`AHB_PROT_BITS-1:0] HPROT,
+  input [`AHB_DATA_BITS-1:0] HWDATA,
+  input [`AHB_MASTER_BITS-1:0] HMASTER,
+  input HMASTLOCK
+);
+
+  // Default clocking
+  clocking clk @(posedge HCLK);
+  endclocking
+  default clocking clk;
+
+  // Default disable iff reset
+  default disable iff (~HRESETn);
+
+  // Glue logics
+  logic latched_grant;
+  logic address_phase;
+  logic data_phase;
+  logic OKAY_resp;
+  logic latched_lock;
+  logic [`AHB_ADDR_BITS-1:0] aligned_addr;
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_grant <= 1'b0;
+    else if (HREADY)
+      latched_grant <= HGRANT_M;
+  end
+
+    //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+4YYSyBMmBk+8wfInAeZTagVLN4Z5W6JEn+Mb+5QWaGKsBWjBlDsOD5AqwpITOdzl
+qkPUYy42XYqB6GCn4xXtOrURcXqO+uf7D3pspK99hwS5auZeC2YTV4BR+o4mHdXi
+SKX/KbaHrHdzLJmE6/RPy5FqmTowgXPFY/esDreLB4BNMhDdbevm7g==
+//pragma protect end_key_block
+//pragma protect digest_block
+kpS5JRhiQ/dmF7UFF+pCs8WTN1A=
+//pragma protect end_digest_block
+//pragma protect data_block
+AeSQWwqzvlHCmGghgU8Qt7eM/ZTU6Qoqwkh91YkWzz41WlFOLfYtnILP9buwgIuU
+g1ZFnUUqXzpNDBrlARFMt5Rk5pPlKD2pl111JjY3wEnQolbImlfZ2iskAxADCRje
++8ndgpbcDj73PODm4ujFlfYnOKwpnktjNRqXdoNxFyiFZP/E0Zh2vtOcq4hPKIAE
+5epZojat+oQ++ZsuC4aEcjAN5lv+8dd0v3GE3iZRjmRginbHGSSXEuyshle5VFmZ
+VjWIRQZHnpyipwQTWr/6ifOhYqnshHSX7k7vEpqcW/dyMbjLc4EaTXqY1zCVZfKu
+idHDRS7nEjNbnn4B8Fci0mX6faI804kQmUmXll849G8w+/7TMn/XpAaaNRWSDWZ0
+nC8jUqX0eiUvPCOkSp9lPEgLm8dDazhYnebXo5C46nohuHY9cE4JXNBnk3coNduP
+0+iSf3r+hxt4i2epnwH21jYRjj7ZFP7MAHdTUeuBEjRNsO2fA8784tD896oB/BQf
+RO1DDhWcLu2J1fpuw26VGy33QHufo7OTXw1EfiCKKco4U09SmejrzwLHxIhMbbFD
+7Fv14qrpSi9ZXwXVIvMRMjIc2bHKDo5Hu1MZZ3bfmRf1FUiH1zYngUiCWYWCZEuZ
+kQKFoSwnrVYQBKN+INzGpQ==
+//pragma protect end_data_block
+//pragma protect digest_block
+7LroSt78wOdsZ7Hseec6AMwU9NY=
+//pragma protect end_digest_block
+//pragma protect end_protected
+
+  always_comb OKAY_resp = (HRESP == `AHB_RESP_OKAY);
+
+  always_ff @(posedge HCLK)
+  begin
+    if (~HRESETn)
+      latched_lock <= 1'b0;
+    else if (HREADY)
+      latched_lock <= HLOCK_M;
+  end
+
+  always_comb
+  begin
+    case (HSIZE_M)
+      `AHB_SIZE_BYTE: aligned_addr = HADDR_M;
+      `AHB_SIZE_HWORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:1], 1'b0};
+      `AHB_SIZE_WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:2], 2'b0};
+      `AHB_SIZE_2WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:3], 3'b0};
+      `AHB_SIZE_4WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:4], 4'b0};
+      `AHB_SIZE_8WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:5], 5'b0};
+      `AHB_SIZE_16WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:6], 6'b0};
+      `AHB_SIZE_32WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:7], 7'b0};
+    endcase
+  end
+
+  // Type: HTRANS Constraints
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: When master receive non OKAY response, it should cancel current transfer
+  HTRANS_nOKAY_resp: assert property (
+    ((~HREADY) && address_phase && (~OKAY_resp)) |=> (HTRANS_M == `AHB_TRANS_IDLE)
+  );
+
+  // Ref: AMBA 2.0 Page 3-10
+  // Description: When master receive OKAY response, HTRANS should remain the same during wait transfer
+  HTRANS_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+Cnii2LwLKlqrya0lMyCGDeZnJuLLK6KnuegtiBphYtcPqPJjk3A63d0qa95gQ64X
+uFC5pgXn+40534SiSiz8/y39kKWFDq30e/LHZlqmJwV7723ACFJhtZ6si33W7rmP
+DO5BltlrsYuJJhgTUHcGSJNSdO1ibuq1fdYM69HP/0SpFP8KL/4+mQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+5ytsmWUxT+FwxkMHt8vaGgj9juk=
+//pragma protect end_digest_block
+//pragma protect data_block
+NXgittU+I16GFgDRfCuo9ufW5I8VtsyLo79xxhZDWaWPLY1IGGJBGWNplJ2do/bL
+8nExaNyyj6sEvh7w2Ly5UOWDzrepO7XSyuWEr+i54OCjFG0liv8o96eMhNbGY8xe
+3ETgSbN+m4bJ6gezB13Mnwrp7JQTq0Ne3yDEdyp6ezxb+u70wMYaRlcFiHOm6Ee4
+hQsufHfUS5YRYbGTFOwpujq+qNxzsxUiNV6PGlsKOgsxNYg2V/DEYcX7xBlQYUQc
+zDYROkqnAz3eAlUU4/0Y+Qg2vU2SFucIfTGtLXp5B5jWJqJ8BeMwOLcwKRgxKrFP
+vpQ8PmX+ornknexRr/2ltTHZlthZpI8130kk1qjgRQxqOp3TBszwDQlokqxQDqmr
+n59axT1pa2gAfqq9iV8bouQ8ilUj/cAaZ1Z8qCZTZfE=
+//pragma protect end_data_block
+//pragma protect digest_block
+HANGLcIzVHMCx93/TvTHd8jDvtA=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: IDLE and NONSEQ only
+  HTRANS_constraint: assert property (
+    ((HTRANS_M == `AHB_TRANS_IDLE) || (HTRANS_M == `AHB_TRANS_NONSEQ))
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HTRANS_path: assert property (
+    (address_phase) |-> (HTRANS == HTRANS_M)
+  );
+
+  // HSIZE Constraint
+  // Ref: AMBA 2.0 Page 3-43
+  // Description: HSIZE should be smaller than bus width
+  HSIZE_data_bus_width: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+vwMSbSWXakOh+EwaMJHu2mUB7CMREZN56lMiOdRuSV0RMVvFNcnPQhPmpwO3i3Ws
+lyh3lzjaHXjs4tUSeUmEgp4QBlm9UxJMw4tcOi5CQIJA2Z/zFYoZueY7blIGe6GM
+G4Ewmf+J3FtuXmzgz0/KjtPpYZaM2dvrdMAIWd9pvT4XHDMp9wl+fQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+WcwVrVKVuIXEkc0pRzCVBhTI7nI=
+//pragma protect end_digest_block
+//pragma protect data_block
+vEndPppuY8OyafcGOIrAS3DEVOay7gGPLQ4ixFHb3bhfD9cqHudLA5t100SPlkwg
+RnHmrqt3OASXRImhLEOfLpL8WGszdJb9G9prTu4NOpCzyqY1VVP/FSOnCjfCn3ka
+HJWljz3rk3hEdq/Z5VvqyYhQGWRFGf/bcfMnBIYbeB/1hQO+qJKI79lGWMPHVsi/
+TNJUVvV27I0eJq2+ammLTl1s5m4FcSdxsR/6ZnTPCB7lJPFSmZXM302KIHU9BhPV
+ZJq+muC8LEoFwrnxRK28m1/BxdusLGmmv9I1qitCv0hw4jtWsjOd3bcJ65JwBOVy
+g4HmLQVfsHPtHvcWAccazs00SKx9tmslpwSG3IliAxqcSReKxbgU2H3cv3KEgCPS
+
+//pragma protect end_data_block
+//pragma protect digest_block
+yqtPAL8HQcGM8q+el4a7lvO4Ioo=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+ 
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HSIZE_wait_stable: assert property (
+    ((~HREADY) && address_phase) |=> $stable(HSIZE_M)
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HSIZE_path: assert property (
+    (address_phase) |-> (HSIZE == HSIZE_M)
+  );
+
+  // Type: HLOCK Constraint
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: HLOCK must be asserted at least a cycle before the address to which it refers
+  HLOCK_assert_before_addr_phase: assert property (
+    (HTRANS_M == `AHB_TRANS_NONSEQ) |-> ($past(HLOCK_M) == $past(latched_lock))
+  );
+
+  // Ref: AMBA 2.0 Page 3-7, 3-8 & 3-34
+  // Description: Control & Data should remain the same during wait transfer.
+  //              The arbiter must observe the HLOCKx signal and assert the HMASTLOCK signal,
+  //              and the HMASTLOCK signal has the same timing as the address and control signals
+  HLOCK_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+rB03RFVvTFHNloARNFu0r4JIcWykPWPRaC1JcqsqVl8RSWK/EAVtepaB98oMsZyd
+EnwZcy4nUCevSb1/QUE++rqNEdt+bPb3i+46Iuk9YqAM3+cVUFGoCQARIDQOk0Us
+g66Lnklc+z2lQji9fkxQDbqZnFk1QoiUHl5xpmGYYUHvuDFAqfSC7w==
+//pragma protect end_key_block
+//pragma protect digest_block
+7AxdeNjwS5pSBMTfS/A6q+SJHKA=
+//pragma protect end_digest_block
+//pragma protect data_block
++Af5hBxa39tTqN/vYUC4JXhrAT0W+dCb6UrmmP21ixIaLQ+yoMefkC4lPxqZC5HH
+POtADt85IfUJGat6HF1ikPxuVLRkHSAVkqKSUJqh7SN916fnqzgmFu/uV2iYczd6
+GJ3KTEVr1b1A6BE5p47Bh07ZPHODpIGWmyemZwDJgyUTNYk0BiDaaGzCjw+puByF
+T9VvYpNlqjik4YfrYRkDQYb5K9GJmlSnFFP+bLU/uave4Jey5pPvyHxHHbHDmMkC
+g027uWUgkkfbNvvcbnHoX4BS0dgF0Aabe9Rvs7j/pqaOyzi4Abso0KhrphWrRN5R
+5NsFzVEDLA1Xd5k1wp/ZZbnV4LvrlwDNofV74UINbA+5nMsw3mhnFCnMpz/JpZ9Z
+a5mVf0ScXp1hLaPW7xs3pw==
+//pragma protect end_data_block
+//pragma protect digest_block
+yCtEZCLdKCHmp30QyUoLMwnbliU=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Type: HADDR Constraint
+  // Ref: AMBA 2.0 Page 3-12
+  // Description: All transfers within a burst must be aligned to the address
+  //              boundary equal to the size of the transfer
+  HADDR_aligned: assert property (
+    disable iff (HTRANS_M == `AHB_TRANS_IDLE)
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+96fxJSnB73f0X69mkiNFOCSpmuajXPeETs6RiSAtC9D3gYzbkNEJoMdmaj2GMUnL
+MkmAQaIP22No+AEkmtVHM0BpdMTCDqRzvj1AlHP9/2PYswt6RsPJllbWeNf/DFXl
+R+EzJJTvuveYMDg8fg/9MksoUFf18pyLnMbbUiKp1S/a2WYEy1qjnQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+N96656LZ9HEl2AneltKERkNPTvg=
+//pragma protect end_digest_block
+//pragma protect data_block
+YwoqijrB5Uz6u1Ced60DwOBROgjhzL1MRivzZHqnE+QNEWsXvgF0q0uTC9feMmFr
+FfmGVv9mPk0m2KUSeG8+9XS4J760iKk+Y47GHyHCzWuUEb4fA5pHBSQoqkoKg5Fq
+1wTMj47HyYkw0AHAFhah6EP5a/4Kxro7Yt8snUKRL0CBKrWrrpsVNUSOYs3LFpn0
+OyU8+pY2svK8SoJZOO6iZaHOwsop4rbtoPcU0CcBPnyYePmKCWhJn+DrMlprW+pB
+sdU4r3j7eNBcnJBEpTO/PyHm90yN3L/EFD9R6NpBzDNInDRGrxsOjRt8mV3nJmYB
+641YYMVP3Bj453gdnlqcjbKfNaeMkR+ipgyCsLTviCAx+hQj2pwSPMhSRlI872y5
+
+//pragma protect end_data_block
+//pragma protect digest_block
+TTqgQ3Qrus+OB27h2WQfrHInDnc=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HADDR_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+LO5erT4FhXbW/EPmSpN9/EXRgdY8TqXZekhRsGAJA4W6FFb0HO8etrzv5yk5Zpnv
+S/ylHwyhjgzXN48KSnHdrTnvF1YL+fUMImuzVvUsWldYK1B6NnAQBZkJIs7ag7mZ
+PrOknQ9TDoV5WfM+z+r4u+YD91WdRBy4lvum+vkHsmQWZPhk/UnXiw==
+//pragma protect end_key_block
+//pragma protect digest_block
+zb9cCBqnUngkVFt25Z6aK1GC3WI=
+//pragma protect end_digest_block
+//pragma protect data_block
+gUyydAb2b4bTjB0AOXa2pgu2GX10ZRFCCUVfAjj//mulm+KjFGsWYlWTaUYJ4QVR
+PogxiUTaa1Qstftw7kwrodINg0pjkvsVVu8igSLp6IBJkRoGQYWS3tLtkpN3lrb1
+egqScK0h+FfylrNeQsmXfOni0Ss7+eAbCXmTL8c0MHfPPAw2I2WvsiLtNucM7gCa
+/X6ykEx7evnCzbUV3KaWhTWP2kmRSi+QgjfzDEsHSaC6svaBJOX/nQKM8qCKntWp
+tkwKpT1R8zksGsv8wyiP1q/ZwdrWJgl0NKkjYT9jfOGQVQYTe67/UaiJCjTYR8pJ
+HIve61YYvR33vo3h0O+vg3GioGGG4w7iihIUKZh9cUU1Hr8Sz0jCKFLBrpqG8WzD
+NhlJGyu003lj4+NT/3VI+aDHkPGolUCpFk09WqPhA4s=
+//pragma protect end_data_block
+//pragma protect digest_block
+WBq47PM+vZn7eREZ0E8CGS9UwNo=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HADDR_path: assert property (
+    (address_phase) |-> (HADDR == HADDR_M)
+  );
+
+  // Type: HBURST Constraint
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: Single transfer only
+  HBURST_allowed: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+ovOFL9tpaajwlBfl5h2VHGH+fKa5mL7vmDG4pHOVLWFHy/5dBNuDuhWmh1CwjJa8
+VGYisz2wCOIi7Pg5TaqOopxljqyw6Aw+A/zZNRUZVZJpUysEPLRi6z2di5hc+Nkr
+alZA/j9tOjJAC9haUIZvwZ4kwp6UyBUE4QQANrrY3VHscFlZd8Aetw==
+//pragma protect end_key_block
+//pragma protect digest_block
+wCMVSzCCUFJTTKiNCuWSY4vyp+o=
+//pragma protect end_digest_block
+//pragma protect data_block
+Sm4jUAs7ZCC48DKQ0+fXgK6ck9rGZWfJV2XLbPjE7nKQnh0l0MiLhE0NpDTWwq2P
+UjsjdHeqTbb4iS6fYvRxUh41s3aC5WXBTISMocCDxQT9oA9mr9oKXQ62XBiqfoNI
+YEyAI5mBfCL5nEfOkItEYEKioQK2lSlprE0rY9v4+XOSGeamIL5rR/FFMOQhrsBB
+J5/71eGYePsFTyvYSpiLl2FmHgJsXGbNhOPpELYLAZoSzDmzP6JfQuuQiYtXRLC8
+o3A1dvMAWH5mWgUrnkQ7kkeimIYVecd6WKhpPioxaI6lUS7/xKQHupdG5vB8fkUu
+Z6eMHxcvPgl/PDh8vN8jKGWoymeBdT7rBsBc/qFW77ra2rsyc2rkP+cqdo1A9fp0
+
+//pragma protect end_data_block
+//pragma protect digest_block
+9VfJWLZZcjZQ5IM7TWK1f0Ky5qg=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HBURST_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+vrq8ONIMaDok9TSQX6BldGEbr4CBrHONlOw3x93qicssCbQEl6ya8osbd/+QqJSp
+LKY6FbSL5AzhcHTSE2x+pHyoz4gACNPpi8tBIGpTxX7kAG7CHiBwGx94yBauAbqi
+oVyAzkx9wInGn+5AiiG5rkmZXwMjjqa5dlcyQSzMPpcr3hrmjSaatQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+eSuN+Z/xL5xPLaixSAqkWfu4d+A=
+//pragma protect end_digest_block
+//pragma protect data_block
+6iYrQOSG7XgGdUIH3SQe6xb4lie4tYeJKzB2UISa4WQM7purwpk0umofdcerjuL2
+9UQM/Azo0NHftyDCq8/odtyybX1ym5T9g2JAz4IZ+X11EP9CUXLkS2wO1llJoxH0
+EmyRXifZMCbsGybQsxvn0sJ+2SNe0o9vLCrZjdgs6LkVz3O8sNDGFFb4uksbODKj
+yHl89br939HR+qWaAgsUe2efwQPXE+z5EmsnZwJjepleeXZcJDifHnI2CbCM1OI1
+ZxkMljDrTZ/924XudHrSZfHZUwNb4qvKKpITLfg3jzZbsQH3RoPm1huwIjOnbrqr
+Ad+J7+FZrEtD83D9BUSQNUee86UIhaJBxakhyQOat+nY3Dl9rXbKX83yWLRbHCna
+bTIW2pvEagzzAD8w68bW/jgm92QXr37Nc66HelttdRY=
+//pragma protect end_data_block
+//pragma protect digest_block
+gWy3h2kcA0UbGmV8upSYdA5DasA=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HBURST_path: assert property (
+    (address_phase) |-> (HBURST == HBURST_M)
+  );
+
+  // Type: HWRITE Constraint
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HWRITE_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+7qRf/VWDI3501k60heZbouUDe+5tX7le6GaBaUoE/7sS2koCbjxA4sccj2NwXs3N
+CLV+YjZjJVJoONwQDA1eUSbCcnQXwW6na+6BHfJAWpXDX8zV/PlwUy+FqsFF1zyo
+j81vSwJ0pxWY6oCfws/WNv17sF1N61Hqeb2oN6+e4zFDeikAV57rsw==
+//pragma protect end_key_block
+//pragma protect digest_block
+2egw7r4Jri7kJASj76AlAmLz7jY=
+//pragma protect end_digest_block
+//pragma protect data_block
+3qbgRqz1dGs5UewbgdiOaHjHk6mPGuuyLrLuw7oFt9oNXACfcC/izAnyIqRvtaER
+6ipLMJkzDddXICJGZpTkyA8YFh9dN1hn+GzFf2e6pIpukl2uPxdj3EbrnR0RHsQy
+KYNx8aE6wT7TJKuC0Q69k8pEx8zuWOGTELBVWePrYHL3Ib4Qz/5UArdwWs8IVrCa
+CwxGXRSieD9tpE3Tb0obgAVnZFV1VcYP57Vj5j+ignfW6S5YVkhJ3BiUveYT6O7T
+wn/Wq03XrBc0A4D4HmnZlGsz+MDHMY3OvTeEeE+Fj1xwoThvopcDwwQVNPOR9IE9
+gkDyyjfQOiT2HjRANNH49EUu/4rz5YC7IrU7KlBnxfKNU8Ds5ML0o1oL4CRu0lkg
+NOtkJG3VVXlo7ud5n0HTdu+WVrvVT8N5YhE+MDDVdBE=
+//pragma protect end_data_block
+//pragma protect digest_block
+mN2boul/tCds1aTgHMtsbzKG3mA=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HWRITE_path: assert property (
+    (address_phase) |-> (HWRITE == HWRITE_M)
+  );
+
+  // Type: HPROT Constraint
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HPROT_wait_stable: assert property (
+    ((~HREADY) && address_phase) |=> $stable(HPROT_M)
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HPROT_path: assert property (
+    (address_phase) |-> (HPROT == HPROT_M)
+  );
+
+  // Type: HWDATA Constraints
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HWDATA_wait_stable: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+Vh7j/vgoN7KWHVGDaTSPueqkO+eoZvwaUP7d/ek6RQKc11V09Xpktu8FcaHbK5Fc
+w4MszT9t+hl9yKdScSXHi1gBnLHmHxvEi5s6PFD+OTBkIbBOo+LwxMqMdH7PBMjz
+Di63SsroG473yeVyHWPX9m1EMG96Jcqslu3NEDd3mw6CNdKcLC15WQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+Q6IaTcghmzclmmSzeQx0d3kyXM0=
+//pragma protect end_digest_block
+//pragma protect data_block
+WSg3wuM8CqaFMQk/DNwCxy0TDEdZYjCIuwIh6hwGnch2Il2EKRQq/tdkGZDIMf7j
+123rrz4w3LPJXVfXPZXjUOoWeDrB2aHGQ3hs9WnhWJr5pVF9hU8Z7IQ1e7Re2gUc
+bkSOlPB8i9yLKeqpb3/uEyWGaSo2ak/o+oe3WqAVDVo9J8CdGuTkCY0uH7bIda31
+1vv5coZhklQse36iLv1rCMVAhG+75nerAB8egiRoIeT+IT4P4/79ykhOf1gVskNl
+s1zMw5h/b2kidd7M0Q9F0wIP66WuNLuoNdu+9JQE6LJfeNZI1obhKD9CJobRM/Xi
+y0pVk1m5xwh3bN2/f3FSlEpIdXp6Zt72tHpq1mWIQHtrI0Lcku6hh7aFSO/XrgUN
+bZxURhh6CMPSre2SdQP0gA==
+//pragma protect end_data_block
+//pragma protect digest_block
+ZyXg0WHG8LjIwOBTVUM0WuaIBOA=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-28 & 3-8
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  //              Address phase is followed by data phase
+  HWDATA_path: assert property (
+    (data_phase) |-> (HWDATA == HWDATA_M)
+  );
+
+  // Type: HMASTER Constraints
+  // Ref: AMBA 2.0 Page 2-5, 3-7 & 3-8
+  // Description: The timing of HMASTER is aligned with the timing of the address and control signals
+  //              Control & Data should remain the same during wait transfer
+  HMASTER_wait_stable: assert property (
+    ((~HREADY) && address_phase) |=> $stable(HMASTER)
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HMASTER_path: assert property (
+    (address_phase) |-> (HMASTER == MASTER_NUMBER)
+  );
+
+  // Type: HMASTLOCK Constraints
+  // Ref: AMBA 2.0 Page 2-5, 3-7 & 3-8
+  // Description: HMASTLOCK has the same timing as the HMASTER signal
+  HMASTLOCK_wait_stable: assert property (
+    ((~HREADY) && address_phase) |=> $stable(HMASTLOCK)
+  );
+
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: A master gains ownership of the address bus when
+  //              HGRANTx is HIGH and HREADY is HIGH at the rising edge of HCLK
+  HMASTLOCK_path: assert property (
+    (address_phase) |-> (HMASTLOCK == latched_lock)
+  );
+
+endmodule
+
+bind AHB ahb_master_monitor #(4'd1) mM1 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HADDR_M   (HADDR_M1  ),
+  .HTRANS_M  (HTRANS_M1 ),
+  .HWRITE_M  (HWRITE_M1 ),
+  .HSIZE_M   (HSIZE_M1  ),
+  .HBURST_M  (HBURST_M1 ),
+  .HPROT_M   (HPROT_M1  ),
+  .HWDATA_M  (HWDATA_M1 ),
+  .HBUSREQ_M (HBUSREQ_M1),
+  .HLOCK_M   (HLOCK_M1  ),
+  .HRDATA    (HRDATA   ),
+  .HREADY    (HREADY   ),
+  .HRESP     (HRESP    ),
+  .HGRANT_M  (HGRANT_M1 ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK)
+);
+
+bind AHB ahb_master_monitor #(4'd2) mM2 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HADDR_M   (HADDR_M2  ),
+  .HTRANS_M  (HTRANS_M2 ),
+  .HWRITE_M  (HWRITE_M2 ),
+  .HSIZE_M   (HSIZE_M2  ),
+  .HBURST_M  (HBURST_M2 ),
+  .HPROT_M   (HPROT_M2  ),
+  .HWDATA_M  (HWDATA_M2 ),
+  .HBUSREQ_M (HBUSREQ_M2),
+  .HLOCK_M   (HLOCK_M2  ),
+  .HRDATA    (HRDATA   ),
+  .HREADY    (HREADY   ),
+  .HRESP     (HRESP    ),
+  .HGRANT_M  (HGRANT_M2 ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK)
+);
+
+module ahb_slave_monitor #(
+  parameter START_ADDR = 32'h0000_0000,
+  parameter END_ADDR = 32'hffff_ffff
+)(
+  input HCLK,
+  input HRESETn,
+  // Slave -> AHB
+  input [`AHB_DATA_BITS-1:0] HRDATA_S,
+  input HREADY_S,
+  input [`AHB_RESP_BITS-1:0] HRESP_S,
+  // AHB -> Slave
+  input [`AHB_TRANS_BITS-1:0] HTRANS,
+  input [`AHB_ADDR_BITS-1:0] HADDR,
+  input HWRITE,
+  input [`AHB_SIZE_BITS-1:0] HSIZE,
+  input [`AHB_BURST_BITS-1:0] HBURST,
+  input [`AHB_PROT_BITS-1:0] HPROT,
+  input [`AHB_DATA_BITS-1:0] HWDATA,
+  input [`AHB_MASTER_BITS-1:0] HMASTER,
+  input HMASTLOCK,
+  input HSEL_S,
+  input HREADY,
+  // AHB -> Master
+  input [`AHB_DATA_BITS-1:0] HRDATA,
+  input [`AHB_RESP_BITS-1:0] HRESP
+);
+
+  // Default clocking
+  clocking clk @(posedge HCLK);
+  endclocking
+  default clocking clk;
+
+  // Default disable iff reset
+  default disable iff (~HRESETn);
+
+  // Glue logics
+  logic [`AHB_TRANS_BITS-1:0] latched_trans;
+  logic [`AHB_RESP_BITS-1:0] latched_resp;
+  logic [`AHB_RESP_BITS-1:0] two_cycle_resp;
+  logic latched_sel;
+  logic latched_write;
+  logic exp_sel;
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_trans <= `AHB_TRANS_IDLE;
+    else if (HREADY)
+      latched_trans <= HTRANS;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_resp <= `AHB_RESP_OKAY;
+    else
+      latched_resp <= HRESP_S;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      two_cycle_resp <= `AHB_RESP_OKAY;
+    else if (two_cycle_resp != `AHB_RESP_OKAY)
+      two_cycle_resp <= `AHB_RESP_OKAY;
+    else if (HRESP_S != `AHB_RESP_OKAY)
+      two_cycle_resp <= HRESP_S;
+  end
+
+    //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+oHXBXyVd9FtCcqF6AssdRqOZtZW8s5iCfYzDysYiF/Wa9Rkxv1GqUbYmUQaj5eNu
+rMH+Kwf30oiSPxTLegDG15y2LyAbXFC5hy2k/+Q2xNzgHURNYcLt2MITamg9tEkY
+TsewIVR4ZAZ8WdOBYKcMqbLMNDTeMcIeHrVY6s/BCENn1wyyO2HRaQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+N8A8ETkQNrFw7vnOVdvqz+qzMG4=
+//pragma protect end_digest_block
+//pragma protect data_block
+uLk8Dg6YpFTjyWEln4A2uzArV6z/LelFduIsECFoQv2ixmtzmom2E7LWXfURUhKI
+UiZp/tUYYNEBMwY+jxJ3oU8QdmfoZn8Ku7kiwamZrt/CwootHwmVW820cRVsG6dK
+jMgFngbSfOlIYjJQYf5+FHklpg6N9hOFdJrf/tO6bK7LI3YhrmTAAx/N4R7BrlRs
+rb+cfoIvDvHHmOuB40hEWPbFg1Z9Kp3dLDQjHX3/dAEWNLbh9qDitjqSIbn++lD9
+/3Uo1yRCuukKUznjLLnGa+Bt6rWlGmbs0xYNnpIPEeMGuZq5tGcoMEbz5l9vD2Ad
+4/p5Ie+h+nwHvCDmZpG1syn7JHiweJ3R75Ln6X7mPJv/Gs9rFXrg79C3f3LuYfr9
+wHo9QRzqJ3Y8mZbEGMc/OxediJQEIG1/lDRkUPkjIrRd4GX2jv27R0G2Sj4UR0Zf
+pnWbhB98r662FluatHy5QxgnJ/L/+MW98kdtJx6tOACiBU/s53Km/Poy59MDaeiT
+XjpW70Onu3KHtxhv0qii8SN1Co9ltLdolox5O/lNZ6I=
+//pragma protect end_data_block
+//pragma protect digest_block
+mhMKqTbLUK6i7kN/Swd1a5JdfJ0=
+//pragma protect end_digest_block
+//pragma protect end_protected
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_write <= 1'b0;
+    else if (HREADY)
+      latched_write <= HWRITE;
+  end
+
+  always_comb exp_sel = ((HADDR >= START_ADDR) && (HADDR <= END_ADDR))? 1'b1: 1'b0;
+
+  // Type: HREADY & HRESP Constraints
+  // Ref: AMBA 2.0 Page 3-9
+  // Description: Slaves must always provide a zero wait state OKAY response to IDLE transfers
+  HREADY_HRESP_idle_transfer: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+NPEpVrz+lQho+8td5D2rtdGKMTW2MU0K+TThHhR/SuYycBuXC+3vu67ck8yK7qd/
+tWz3SkkNezlxwajOMelBizQz7W+0mEviq+ZGTQVbWnAKmcRSw61sW83SHyegZTH4
+pAeVx4Wi3IcUmkNqPQTxOzv1pLhKN+ZTs66+BDpMZq/i0tJBTqrvjQ==
+//pragma protect end_key_block
+//pragma protect digest_block
+DcOXHTrZ577cFH56OCcZUXCLi2w=
+//pragma protect end_digest_block
+//pragma protect data_block
+qUubqZ8wa7++VHFBlc/IBedn08wMEocO03Gvm6qy44UtFpy305JbRYjLbhXjB1Sx
+y677ilMTgBIqC1Pq+Mo1b71FdV+Ib47/HebNrWYKaNjeRsI/v0ONM2FN96FrYxpD
+/8HoSlzMoBiE2ui+Dl01X8QxvZ0F6Ahr8I3fIxZTI5ir+LkvXKPvBRZKU6AvxDL/
+YZ5cyUjOXq17+ZiZh430X4T+EpFzqSHie1dqFSAfFvPFSDKp7Kf3cV9eeLjKISjX
+8BLAh/D/0lAH0vDHsk533qYDYKHo/ZuHPftZfuHnCJNPEZ30VPl+g1mMjv1c8e71
+VbffzuCGkLDmhuNXIkOr2I4Lr/B6aBLFAbn1jPH35IA3ibstPjekpk+HyJfGiYP1
+shc/wPSOo5cm/JQ4aDACMwGds5rM9wE9YL1sL1cIeK8Ipyr9wz/WgBq1M1G1FXD5
+ege5VdjwKPFCqDoCsmeHxw==
+//pragma protect end_data_block
+//pragma protect digest_block
+VU55ebWnwBEBKGDaSQntB7hMeWM=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: HREADY should be low to extend the transfer for an extra cycle
+  HREADY_HRESP_first_nOKAY: assert property (
+    (latched_sel && (HRESP_S != `AHB_RESP_OKAY) && (two_cycle_resp == `AHB_RESP_OKAY)) |-> (!HREADY_S)
+  );
+
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: Non OKAY response must persist for 2 cycle only
+  HREADY_HRESP_second_nOKAY: assert property (
+    (latched_sel && (two_cycle_resp != `AHB_RESP_OKAY)) |-> (HREADY_S && (HRESP_S == latched_resp))
+  );
+
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: OKAY and ERROR only
+  HRESP_no_retry_split: assert property (
+        //pragma protect begin_protected
+//pragma protect key_keyowner=Cadence Design Systems.
+//pragma protect key_keyname=CDS_KEY
+//pragma protect key_method=RC5
+//pragma protect key_block
+adx3EeikFueCDfxaJz8/EcZtv/7qM/4eigvKx3b9BNkmUGwc6f4Z+wewDucys99s
+3h5/m3ii0EFBbY73PcGY1Q35kTXsY1Joyzm6fHus3oToNYR6Knyye8NzRbtV/tC2
+lROYvL64dRe0f+0xir3BkGjT4b5ale1Ew4TqSFs+vfHA/S+qkkmpRg==
+//pragma protect end_key_block
+//pragma protect digest_block
+RfiUIhGzwtFhaX5T2Rt0zedi2ug=
+//pragma protect end_digest_block
+//pragma protect data_block
+504J/MzRQy+ODL+ZvVj/NIk9ZnEl5ZfL5WK6bOKsRYqs2Yudp/tvvoTJYWXWsy6f
+zLigcp4Ev04eBa6YynG2ww7422UvdUvRI1zkFs+GVFopnyAE2mVXcohhAnrw5WS3
+riA0SPCIerEinuU3S4uXZ51CHCfXVKL3GhU3Cvf55a/IOfaiWocfCsPLNoG3T6f2
+UYCpLzHQWl6CNV+F/jCQrlyTTGuUIoK0sgM5meK5scQtQ8+RwLZ4jwVO/H+FIWyF
+K5glT5XUwRt2tPJVHyvhRVYR0mI3l9o8oGrO/GDCW4jBCpSjeNtf3cuB4qQgOFag
+bgOI/m/FD+VFocLUSHL/okEtsvjcMt+5e97ehCnskeExZY/y6gO7e/sblDfuKZFB
+tiaVbK/pR9d63XiFaNYNLF0Px1B5f9Ocr7SOsXO/KXg=
+//pragma protect end_data_block
+//pragma protect digest_block
+GUTtFdHZk2h94t2+UKB1tq7Hprw=
+//pragma protect end_digest_block
+//pragma protect end_protected
+  );
+
+  // Ref: AMBA 2.0 3-20
+  // Description: Whenever a slave is accessed it must provide a response which indicates the status of the transfer
+  HRESP_path: assert property (
+    (latched_sel) |-> (HRESP == HRESP_S)
+  );
+
+  // Ref: AMBA 2.0 3-20
+  // Description: Whenever a slave is accessed it must provide a response which indicates the status of the transfer
+  HREADY_path: assert property (
+    (latched_sel) |-> (HREADY == HREADY_S)
+  );
+
+  // Ref: AMBA 2.0 3-25
+  // Description: The read data bus is driven by the appropriate slave during read transfers
+  HRDATA_path: assert property (
+    (latched_sel && (~latched_write)) |-> (HRDATA == HRDATA_S)
+  );
+
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: HSEL should be HIGH when HADDR is between START and END Address
+  HSEL_in_range: assert property (
+    (HSEL_S == exp_sel)
+  );
+
+endmodule
+
+bind AHB ahb_slave_monitor #(
+  .START_ADDR(32'h0000_0000),
+  .END_ADDR  (32'h0000_ffff)
+) mS1 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HRDATA_S  (HRDATA_S1 ),
+  .HREADY_S  (HREADY_S1 ),
+  .HRESP_S   (HRESP_S1  ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK),
+  .HSEL_S    (HSEL_S1   ),
+  .HREADY    (HREADY   ),
+  .HRDATA    (HRDATA   ),
+  .HRESP     (HRESP    )
+);
+
+bind AHB ahb_slave_monitor #(
+  .START_ADDR(32'h0001_0000),
+  .END_ADDR  (32'h0001_ffff)
+) mS2 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HRDATA_S  (HRDATA_S2 ),
+  .HREADY_S  (HREADY_S2 ),
+  .HRESP_S   (HRESP_S2  ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK),
+  .HSEL_S    (HSEL_S2   ),
+  .HREADY    (HREADY   ),
+  .HRDATA    (HRDATA   ),
+  .HRESP     (HRESP    )
+);

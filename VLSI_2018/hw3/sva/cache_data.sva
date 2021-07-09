@@ -1,0 +1,136 @@
+//================================================
+// Auther:      Zong-Hui Tsai (Claire)
+// Filename:    cache_data.sva
+// Description: data cache sva
+// Version:     0.1
+//================================================
+`define wr_start_bits 5 
+`include "array_mem_model.sv"
+`include "DM_mem_model.sv"
+
+module props(
+  input clk,
+  input rst,
+  input core_req,
+  input core_write,
+  input [`DATA_BITS-1:0] core_addr,
+  input [`CACHE_TYPE_BITS-1:0] core_type,
+  input core_wait,
+  input [`DATA_BITS-1:0] core_in,
+  input [`DATA_BITS-1:0] core_out,
+  input [`CACHE_TAG_BITS-1:0] TA_out,
+  input hit,
+  input miss,
+  input D_req,
+  input D_write,
+  input [`DATA_BITS-1:0] D_addr
+);
+
+  wire [`CACHE_IDX_BITS-1:0] core_index;
+  wire [`CACHE_IDX_BITS-1:0] D_index;
+  wire [`CACHE_IDX_BITS-1:0] target_index;
+  wire [`CACHE_TAG_BITS-1:0] core_tag;
+  wire [`wr_start_bits-1:0] GOLDEN_wr_start;
+  reg [`DATA_BITS-1:0] target_addr;
+  reg [`DATA_BITS-1:0] GOLDEN_data;
+  reg have_write;
+  reg temp_valid; 
+  reg valid; 
+  
+  assign core_index = core_addr[`CACHE_ADDR_BITS-1:`CACHE_BLK_BITS];
+  assign target_index = target_addr[`CACHE_ADDR_BITS-1:`CACHE_BLK_BITS];
+  assign D_index = D_addr[`CACHE_ADDR_BITS-1:`CACHE_BLK_BITS];
+  assign core_tag = core_addr[`DATA_BITS-1:`CACHE_ADDR_BITS];
+  assign GOLDEN_wr_start = {core_addr[1:0],3'b0};
+
+  always@(posedge clk or posedge rst)begin
+    if(rst) begin
+      GOLDEN_data <= `DATA_BITS'd0;
+      have_write <= 1'b0;
+      temp_valid <= 1'b0;
+      valid <= 1'b0;
+    end
+    else begin
+      if(core_req && core_write && (core_addr[`DATA_BITS-1:2] == target_addr[`DATA_BITS-1:2]))
+      begin
+        have_write <= 1'b1;
+        case(core_type)
+          `CACHE_BYTE: GOLDEN_data[GOLDEN_wr_start+:8] <= core_in[7:0];  
+          `CACHE_HWORD: GOLDEN_data[GOLDEN_wr_start+:16] <= core_in[15:0];   
+          `CACHE_WORD: GOLDEN_data[GOLDEN_wr_start+:32] <= core_in[31:0];  
+        endcase
+      end
+      if(core_req && ~core_write && (core_index == target_index))
+        temp_valid <= 1'b1;
+      if(temp_valid)
+        valid <= 1'b1;
+    end
+  end 
+
+  //----- constraint ------//
+  target_addr_stable: assume property(@(posedge clk) disable iff(rst)($stable(target_addr))); 
+  core_type_legal: assume property(@(posedge clk) disable iff(rst)((core_type == `CACHE_BYTE)||(core_type == `CACHE_HWORD)||(core_type == `CACHE_WORD)));
+  core_addr_legal_1: assume property(@(posedge clk) disable iff(rst)(core_type == `CACHE_HWORD |-> core_addr[0] == 1'b0));
+  core_addr_legal_2: assume property(@(posedge clk) disable iff(rst)(((core_type == `CACHE_WORD) || ~core_write) |-> core_addr[1:0] == 2'b0));
+  core_write_stable: assume property(@(posedge clk) disable iff(rst)(core_wait |=> $stable(core_write)));
+  core_type_stable: assume property(@(posedge clk) disable iff(rst)(core_wait |=> $stable(core_type)));
+  core_addr_stable: assume property(@(posedge clk) disable iff(rst)(core_wait |=> $stable(core_addr)));
+  core_in_stable: assume property(@(posedge clk) disable iff(rst)(core_wait |=> $stable(core_in)));
+  req_stable: assume property(@(posedge clk) disable iff(rst)(core_wait |=> $stable(core_req)));
+  req_when_write: assume property(@(posedge clk) disable iff(rst)(core_write |-> core_req));
+ 
+  //----- verify ------//
+  data_integrity: assert property(@(posedge clk) disable iff(rst)(core_req && (~core_write) && (core_addr == target_addr) && have_write && (~core_wait)) |-> core_out == GOLDEN_data);
+  hit_check: assert property(@(posedge clk) disable iff (rst)((~core_wait) ##1 (core_req  && core_wait && (core_index == target_index)) ##1 (valid && (TA_out == core_tag)) |->  hit));  
+  miss_check: assert property(@(posedge clk) disable iff (rst)((~core_wait) ##1 (core_req  && core_wait && (core_index == target_index)) ##1 ((~valid) || (valid && (TA_out != core_tag))) |->  miss));
+
+endmodule
+
+  //bind props to L1C_data 
+  bind L1C_data props props_i(
+    .clk(clk),
+    .rst(rst),
+    .core_addr(core_addr),
+    .core_req(core_req),
+    .core_wait(core_wait),
+    .core_out(core_out),
+    .core_in(core_in),
+    .core_write(core_write),
+    .core_type(core_type),
+    .TA_out(TA_out),
+    .hit(hit),
+    .miss(~hit),
+    .D_req(D_req),
+    .D_write(D_write),
+    .D_addr(D_addr)
+  );
+  //bind DM_mem_model to L1C_data and props
+  bind L1C_data DM_mem_model DM_mem_model_i(
+    .clk(clk),
+    .rst(rst),
+    .D_req(D_req),
+    .D_wait(D_wait),
+    .D_write(D_write),
+    .D_type(D_type),
+    .D_addr(D_addr),
+    .D_in(D_in),
+    .D_out(D_out),  
+    .target_addr(props_i.target_addr)
+  );
+
+  //bind array_mem_model to L1C_data and props 
+  bind L1C_data array_mem_model array_mem_model_i(
+    .clk(clk),
+    .target_index(props_i.target_index),
+    .tgm_write(TA_write),
+    .tgm_rd(TA_read),
+    .tgm_addr(index),
+    .tgm_wrdata(TA_in), 
+    .tgm_rdata(TA_out), 
+    .dtm_write(DA_write),
+    .dtm_rd(DA_read),
+    .dtm_addr(index),
+    .dtm_wrdata(DA_in),
+    .dtm_rdata(DA_out)
+  );
+

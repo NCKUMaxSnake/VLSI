@@ -1,0 +1,14 @@
+//
+// File created by:  irun
+// Do not modify this file
+//
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim/top_tb.sv
++incdir+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./src+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./include+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim
++define+prog0+FSDB_ALL
++nc64bit
+-define
+CYCLE=13.0
+-define
+MAX=2000000
++access+r
++prog_path=/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim/prog0

@@ -1,0 +1,373 @@
+//================================================
+// Auther:      Hsieh Hsien-Hua (Henry)
+// Filename:    ahb.sva
+// Description: AHB driver
+// Version:     1.0
+//================================================
+
+`include "AHB_def.svh"
+
+module ahb_master (
+  input HCLK,
+  input HRESETn,
+  // Master -> AHB
+  input [`AHB_ADDR_BITS-1:0] HADDR_M,
+  input [`AHB_TRANS_BITS-1:0] HTRANS_M,
+  input HWRITE_M,
+  input [`AHB_SIZE_BITS-1:0] HSIZE_M,
+  input [`AHB_BURST_BITS-1:0] HBURST_M,
+  input [`AHB_PROT_BITS-1:0] HPROT_M,
+  input [`AHB_DATA_BITS-1:0] HWDATA_M,
+  input HBUSREQ_M,
+  input HLOCK_M,
+  // AHB -> Master
+  input [`AHB_DATA_BITS-1:0] HRDATA,
+  input HREADY,
+  input [`AHB_RESP_BITS-1:0] HRESP,
+  input HGRANT_M
+);
+
+  // Default clocking
+  clocking clk @(posedge HCLK);
+  endclocking
+  default clocking clk;
+
+  // Default disable iff reset
+  default disable iff (~HRESETn);
+
+  // Glue logics
+  logic latched_grant;
+  logic address_phase;
+  logic data_phase;
+  logic OKAY_resp;
+  logic latched_lock;
+  logic [`AHB_ADDR_BITS-1:0] aligned_addr;
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_grant <= 1'b0;
+    else if (HREADY)
+      latched_grant <= HGRANT_M;
+  end
+
+  always_comb // define address_phase
+  begin
+    /* complete this part by yourself */
+    address_phase = latched_grant & ~HREADY;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn) // define data_phase
+  begin
+    /* complete this part by yourself */
+    if(~HRESETn)
+        data_phase <= 1'b0;
+    else if (HREADY) 
+        data_phase <= address_phase;
+  end
+
+  always_comb OKAY_resp = (HRESP == `AHB_RESP_OKAY);
+
+  always_ff @(posedge HCLK)
+  begin
+    if (~HRESETn)
+      latched_lock <= 1'b0;
+    else if (HREADY)
+      latched_lock <= HLOCK_M;
+  end
+
+  always_comb
+  begin
+    case (HSIZE_M)
+      `AHB_SIZE_BYTE: aligned_addr = HADDR_M;
+      `AHB_SIZE_HWORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:1], 1'b0};
+      `AHB_SIZE_WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:2], 2'b0};
+      `AHB_SIZE_2WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:3], 3'b0};
+      `AHB_SIZE_4WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:4], 4'b0};
+      `AHB_SIZE_8WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:5], 5'b0};
+      `AHB_SIZE_16WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:6], 6'b0};
+      `AHB_SIZE_32WORD: aligned_addr = {HADDR_M[`AHB_ADDR_BITS-1:7], 7'b0};
+    endcase
+  end
+
+  // Type: HTRANS Constraints
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: When master receive non OKAY response, it should cancel current transfer
+  HTRANS_nOKAY_resp: assume property (
+    ((~HREADY) && address_phase && (~OKAY_resp)) |=> (HTRANS_M == `AHB_TRANS_IDLE)
+  );
+
+  // Ref: AMBA 2.0 Page 3-10
+  // Description: When master receive OKAY response, HTRANS should remain the same during wait transfer
+  HTRANS_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((~HREADY) && (OKAY_resp)) |=> $stable(HTRANS_M)
+  );
+
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: IDLE and NONSEQ only
+  HTRANS_constraint: assume property (
+    ((HTRANS_M == `AHB_TRANS_IDLE) || (HTRANS_M == `AHB_TRANS_NONSEQ))
+  );
+
+  // Type: HSIZE Constraint
+  // Ref: AMBA 2.0 Page 3-43
+  // Description: HSIZE should be smaller than bus width
+  HSIZE_data_bus_width: assume property (
+    /* complete this part by yourself */
+    (HSIZE_M < `AHB_SIZE_2WORD)
+  );
+ 
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HSIZE_wait_stable: assume property (
+    ((~HREADY)) |=> $stable(HSIZE_M)
+  );
+
+  // Type: HLOCK Constraint
+  // Ref: AMBA 2.0 Page 3-28
+  // Description: HLOCK must be asserted at least a cycle before the address to which it refers
+  HLOCK_assert_before_addr_phase: assume property (
+    (HTRANS_M == `AHB_TRANS_NONSEQ) |-> ($past(HLOCK_M) == $past(latched_lock))
+  );
+
+  // Ref: AMBA 2.0 Page 3-7, 3-8 & 3-34
+  // Description: Control & Data should remain the same during wait transfer.
+  //              The arbiter must observe the HLOCKx signal and assert the HMASTLOCK signal,
+  //              and the HMASTLOCK signal has the same timing as the address and control signals
+  HLOCK_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((address_phase ) |->(HLOCK_M)) and 
+    ((HGRANT_M      ) |->(HLOCK_M))
+  );
+
+  // Type: HADDR Constraint
+  // Ref: AMBA 2.0 Page 3-12
+  // Description: All transfers within a burst must be aligned to the address
+  //              boundary equal to the size of the transfer
+  HADDR_aligned: assume property (
+    disable iff (HTRANS_M == `AHB_TRANS_IDLE)
+    /* complete this part by yourself */
+    ((HSIZE_M == `AHB_SIZE_HWORD) |-> (HADDR_M[0] == 1'b0  )) and
+    ((HSIZE_M == `AHB_SIZE_WORD ) |-> (HADDR_M[1:0] == 2'b0))
+  );
+
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HADDR_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((~HREADY)) |=>$stable(HADDR_M)
+  );
+
+  // Type: HBURST Constraint
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: Single transfer only
+  HBURST_allowed: assume property (
+    /* complete this part by yourself */
+    (HBURST_M == `AHB_BURST_SINGLE)
+  );
+
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HBURST_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((~HREADY)) |=>$stable(HBURST_M)
+  );
+
+  // Type: HWRITE Constraint
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HWRITE_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((~HREADY)) |=>$stable(HWRITE_M)
+  );
+
+  // Type: HPROT Constraint
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HPROT_wait_stable: assume property (
+    ((~HREADY)) |=> $stable(HPROT_M)
+  );
+
+  // Type: HWDATA Constraints
+  // Ref: AMBA 2.0 Page 3-7 & 3-8
+  // Description: Control & Data should remain the same during wait transfer
+  HWDATA_wait_stable: assume property (
+    /* complete this part by yourself */
+    ((~HREADY)) |=> $stable(HWDATA_M)
+  );
+
+endmodule
+
+bind AHB ahb_master M1 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HADDR_M   (HADDR_M1  ),
+  .HTRANS_M  (HTRANS_M1 ),
+  .HWRITE_M  (HWRITE_M1 ),
+  .HSIZE_M   (HSIZE_M1  ),
+  .HBURST_M  (HBURST_M1 ),
+  .HPROT_M   (HPROT_M1  ),
+  .HWDATA_M  (HWDATA_M1 ),
+  .HBUSREQ_M (HBUSREQ_M1),
+  .HLOCK_M   (HLOCK_M1  ),
+  .HRDATA    (HRDATA   ),
+  .HREADY    (HREADY   ),
+  .HRESP     (HRESP    ),
+  .HGRANT_M  (HGRANT_M1 )
+);
+
+bind AHB ahb_master M2 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HADDR_M   (HADDR_M2  ),
+  .HTRANS_M  (HTRANS_M2 ),
+  .HWRITE_M  (HWRITE_M2 ),
+  .HSIZE_M   (HSIZE_M2  ),
+  .HBURST_M  (HBURST_M2 ),
+  .HPROT_M   (HPROT_M2  ),
+  .HWDATA_M  (HWDATA_M2 ),
+  .HBUSREQ_M (HBUSREQ_M2),
+  .HLOCK_M   (HLOCK_M2  ),
+  .HRDATA    (HRDATA   ),
+  .HREADY    (HREADY   ),
+  .HRESP     (HRESP    ),
+  .HGRANT_M  (HGRANT_M2 )
+);
+
+module ahb_slave (
+  input HCLK,
+  input HRESETn,
+  // Slave -> AHB
+  input [`AHB_DATA_BITS-1:0] HRDATA_S,
+  input HREADY_S,
+  input [`AHB_RESP_BITS-1:0] HRESP_S,
+  // AHB -> Slave
+  input [`AHB_TRANS_BITS-1:0] HTRANS,
+  input [`AHB_ADDR_BITS-1:0] HADDR,
+  input HWRITE,
+  input [`AHB_SIZE_BITS-1:0] HSIZE,
+  input [`AHB_BURST_BITS-1:0] HBURST,
+  input [`AHB_PROT_BITS-1:0] HPROT,
+  input [`AHB_DATA_BITS-1:0] HWDATA,
+  input [`AHB_MASTER_BITS-1:0] HMASTER,
+  input HMASTLOCK,
+  input HSEL_S,
+  input HREADY
+);
+
+  // Default clocking
+  clocking clk @(posedge HCLK);
+  endclocking
+  default clocking clk;
+
+  // Default disable iff reset
+  default disable iff (~HRESETn);
+
+  // Glue logics
+  logic [`AHB_TRANS_BITS-1:0] latched_trans;
+  logic [`AHB_RESP_BITS-1:0] latched_resp;
+  logic [`AHB_RESP_BITS-1:0] two_cycle_resp;
+  logic latched_sel;
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_trans <= `AHB_TRANS_IDLE;
+    else if (HREADY)
+      latched_trans <= HTRANS;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      latched_resp <= `AHB_RESP_OKAY;
+    else
+      latched_resp <= HRESP_S;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn)
+  begin
+    if (~HRESETn)
+      two_cycle_resp <= `AHB_RESP_OKAY;
+    else if (two_cycle_resp != `AHB_RESP_OKAY)
+      two_cycle_resp <= `AHB_RESP_OKAY;
+    else if (HRESP_S != `AHB_RESP_OKAY)
+      two_cycle_resp <= HRESP_S;
+  end
+
+  always_ff @(posedge HCLK or negedge HRESETn) // define latched_sel
+  begin
+    /* complete this part by yourself */
+    if(~HRESETn)
+        latched_sel <= 1'b0;
+    else if (HREADY)
+        latched_sel <= HSEL_S;
+  end
+
+  // Type: HREADY & HRESP Constraints
+  // Ref: AMBA 2.0 Page 3-9
+  // Description: Slaves must always provide a zero wait state OKAY response to IDLE transfers
+  HREADY_HRESP_idle_transfer: assume property (
+    /* complete this part by yourself */
+    (latched_trans == `AHB_TRANS_IDLE) |-> (HREADY_S && HRESP_S ==`AHB_RESP_OKAY )
+  );
+
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: HREADY should be low to extend the transfer for an extra cycle
+  HREADY_HRESP_first_nOKAY: assume property (
+    (latched_sel && (HRESP_S != `AHB_RESP_OKAY) && (two_cycle_resp == `AHB_RESP_OKAY)) |-> (!HREADY_S)
+  );
+
+  // Ref: AMBA 2.0 Page 3-22
+  // Description: Non OKAY response must persist for 2 cycle only
+  HREADY_HRESP_second_nOKAY: assume property (
+    (latched_sel && (two_cycle_resp != `AHB_RESP_OKAY)) |-> (HREADY_S && (HRESP_S == latched_resp))
+  );
+
+  // Ref: VSD2018 HW2 Spec Page 4
+  // Description: OKAY and ERROR only
+  HRESP_no_retry_split: assume property (
+    /* complete this part by yourself */
+    (HRESP_S == `AHB_RESP_OKAY) | (HRESP_S==`AHB_RESP_ERROR)
+  );
+
+endmodule
+
+bind AHB ahb_slave S1 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HRDATA_S  (HRDATA_S1 ),
+  .HREADY_S  (HREADY_S1 ),
+  .HRESP_S   (HRESP_S1  ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK),
+  .HSEL_S    (HSEL_S1   ),
+  .HREADY    (HREADY   )
+);
+
+bind AHB ahb_slave S2 (
+  .HCLK      (HCLK     ),
+  .HRESETn   (HRESETn  ),
+  .HRDATA_S  (HRDATA_S2 ),
+  .HREADY_S  (HREADY_S2 ),
+  .HRESP_S   (HRESP_S2  ),
+  .HTRANS    (HTRANS   ),
+  .HADDR     (HADDR    ),
+  .HWRITE    (HWRITE   ),
+  .HSIZE     (HSIZE    ),
+  .HBURST    (HBURST   ),
+  .HPROT     (HPROT    ),
+  .HWDATA    (HWDATA   ),
+  .HMASTER   (HMASTER  ),
+  .HMASTLOCK (HMASTLOCK),
+  .HSEL_S    (HSEL_S2   ),
+  .HREADY    (HREADY   )
+);

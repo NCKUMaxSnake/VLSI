@@ -1,0 +1,31 @@
+//
+// File created by:  irun
+// Do not modify this file
+//
+-XLMODE
+./INCA_libs/irun.lnx86.15.20.nc
+-RUNMODE
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim/top_tb.sv
+-INCDIR
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./syn
+-INCDIR
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./include
+-INCDIR
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim
+-DEFINE
+SYN
+-DEFINE
+prog0
+-DEFINE
+CYCLE=8.0
+-DEFINE
+MAX=2000000
+-CDSLIB
+./INCA_libs/irun.lnx86.15.20.nc/cdsrun.lib
+-HDLVAR
+./INCA_libs/irun.lnx86.15.20.nc/hdlrun.var
+-MESSAGES
+-UPDATE
+-XLLIBSTORE
+./INCA_libs/irun.lnx86.15.20.nc/xllibs
+-ALLOWUNBOUND

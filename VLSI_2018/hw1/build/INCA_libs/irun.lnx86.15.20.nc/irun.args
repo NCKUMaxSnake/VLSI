@@ -1,0 +1,15 @@
+//
+// File created by:  irun
+// Do not modify this file
+//
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim/top_tb.sv
+-sdf_file
+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./syn/top_syn.sdf
++incdir+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./syn+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./include+/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim
++define+SYN+prog0
+-define
+CYCLE=8.0
+-define
+MAX=2000000
++access+r
++prog_path=/home/max.chen/Training_Summer2/VLSI_2018/hw1/./sim/prog0
